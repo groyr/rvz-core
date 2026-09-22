@@ -1,0 +1,10 @@
+[package]
+name = "gc-disc"
+description = "Nintendo GameCube ディスクのスクランブル解除（descramble）と解析"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

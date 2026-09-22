@@ -1,0 +1,9 @@
+# ビルド出力
+target/
+
+# エディタ・OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
