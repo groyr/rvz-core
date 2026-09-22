@@ -7,12 +7,17 @@
 //! コンテナ全体（encoder/decoder）は段階的に移植する。
 
 pub mod constants;
+pub mod crypto;
+pub mod decoder;
 pub mod error;
 pub mod lfg;
 pub mod pack;
+pub mod read;
 pub mod unpack;
 
+pub use decoder::{decompress_rvz, read_output_size};
 pub use error::RvzError;
 pub use lfg::{seed_bytes, u32be, LaggedFibonacciGenerator, Lfg, LFG_SEED_BYTES};
 pub use pack::rvz_pack_chunk;
+pub use read::ReadAt;
 pub use unpack::unpack;

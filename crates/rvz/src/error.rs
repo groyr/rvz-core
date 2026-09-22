@@ -17,6 +17,20 @@ pub enum RvzError {
 	UnconsumedInput,
 	/// 展開後のサイズが一致しない
 	SizeMismatch,
+	/// RVZ ファイルではない（マジック不一致）
+	NotRvz,
+	/// RVZ ヘッダーが壊れている
+	BadHeader,
+	/// RVZ のファイルサイズが一致しない
+	FileSizeMismatch,
+	/// 未対応の圧縮方式
+	UnsupportedCompression,
+	/// zstd 伸長に失敗
+	Zstd,
+	/// パーティション表の形式が不正
+	BadPartitionTable,
+	/// グループが見つからない
+	MissingGroup,
 }
 
 impl std::fmt::Display for RvzError {
@@ -29,6 +43,13 @@ impl std::fmt::Display for RvzError {
 			RvzError::BadRecord => "RVZ packing レコードのサイズが不正です",
 			RvzError::UnconsumedInput => "RVZ packing 入力をすべて消費できませんでした",
 			RvzError::SizeMismatch => "RVZ グループの展開サイズが一致しません",
+			RvzError::NotRvz => "RVZ ファイルではありません",
+			RvzError::BadHeader => "RVZ ヘッダーが壊れています",
+			RvzError::FileSizeMismatch => "RVZ のファイルサイズが一致しません",
+			RvzError::UnsupportedCompression => "未対応の圧縮方式です",
+			RvzError::Zstd => "zstd 伸長に失敗しました",
+			RvzError::BadPartitionTable => "RVZ パーティション表の形式が不正です",
+			RvzError::MissingGroup => "RVZ グループが見つかりません",
 		};
 		write!(f, "{}", msg)
 	}

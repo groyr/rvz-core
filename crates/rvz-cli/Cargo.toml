@@ -1,0 +1,10 @@
+[package]
+name = "rvz-cli"
+description = "rvz-core の検証用 CLI（RVZ→ISO をストリームして MD5 を表示）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rvz = { path = "../rvz" }
+md5 = "0.7"

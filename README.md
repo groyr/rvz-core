@@ -11,9 +11,12 @@ GameCube 関連のディスク処理を PC / Pi / ブラウザで共有するた
   - 出典: friidump (Arep, GPLv2+) の unscrambler → CleanRip `source/disc_scramble.c`
     → gc-live-disc-server `descramble.py` と同一アルゴリズム
 - `crates/rvz` … RVZ コンテナ（Wii ディスクイメージの Zstandard 圧縮コンテナ）
-  - 現状: packing 層（LFG パディングの pack/unpack）を移植済み。LFG と pack は
-    rvz-converter（TS 実装）の参照ベクトルと一致することをテストで担保
-  - 予定: コンテナ全体（encoder / decoder）と zstd 連携を段階的に移植
+  - packing 層（LFG パディングの pack/unpack）: TS 実装の参照ベクトルと一致（テスト済み）
+  - **デコーダ（RVZ→ISO）**: zstd（ruzstd）+ LFG unpack + ハッシュ再構築 + AES-128-CBC 再暗号化
+    - **実機検証**: MKWii の RVZ（2.65GB）を展開し、参照 ISO（4.48GB）と **MD5 完全一致**
+      （`1942f9c1…`）
+  - 予定: エンコーダ（ISO→RVZ）と wasm / CLI バインディング
+- `crates/rvz-cli` … 検証用 CLI（`rvz-cli decode <input.rvz>` で ISO の MD5 を表示）
 
 ## 方針
 
