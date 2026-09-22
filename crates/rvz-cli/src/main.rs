@@ -1,12 +1,13 @@
-//! rvz-core 縺ｮ讀懆ｨｼ逕ｨ CLI縲・//!
-//! 菴ｿ縺・婿:
-//!   rvz-cli decode <input.rvz>
+//! rvz-core の検証用 CLI。
 //!
-//! RVZ 繧貞ｱ暮幕縺励！SO 蜈ｨ菴薙・ MD5 縺ｨ繧ｵ繧､繧ｺ繧定｡ｨ遉ｺ縺吶ｋ・・SO 縺ｯ繝輔ぃ繧､繝ｫ縺ｸ譖ｸ縺榊・縺輔↑縺・ｼ峨・//! 蜿ら・ ISO 縺ｮ MD5 縺ｨ豈碑ｼ・☆繧九％縺ｨ縺ｧ繝・さ繝ｼ繝縺ｮ豁｣縺励＆繧呈､懆ｨｼ縺吶ｋ縲・
-use std::io::{Read, Seek, SeekFrom};
+//! 使い方:
+//!   rvz-cli decode <input.rvz>              RVZ を展開し ISO 全体の MD5 を表示
+//!   rvz-cli encode <input.iso> <out.rvz> [level]   ISO を RVZ へ圧縮
+
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::sync::Mutex;
 
-use rvz::ReadAt;
+use rvz::{ReadAt, WriteAt};
 
 struct FileReader {
 	file: Mutex<std::fs::File>,
@@ -27,6 +28,17 @@ impl ReadAt for FileReader {
 		}
 		buf.truncate(got);
 		Ok(buf)
+	}
+}
+
+struct FileWriter {
+	file: std::fs::File,
+}
+
+impl WriteAt for FileWriter {
+	fn write_at(&mut self, offset: u64, data: &[u8]) -> std::io::Result<()> {
+		self.file.seek(SeekFrom::Start(offset))?;
+		self.file.write_all(data)
 	}
 }
 
@@ -59,15 +71,9 @@ impl Md5Sink {
 	}
 }
 
-fn main() {
-	let args: Vec<String> = std::env::args().collect();
-	if args.len() < 3 || args[1] != "decode" {
-		eprintln!("菴ｿ縺・婿: rvz-cli decode <input.rvz>");
-		std::process::exit(2);
-	}
-	let path = &args[2];
+fn cmd_decode(path: &str) {
 	let file = std::fs::File::open(path).unwrap_or_else(|e| {
-		eprintln!("髢九￠縺ｾ縺帙ｓ: {}: {}", path, e);
+		eprintln!("開けません: {}: {}", path, e);
 		std::process::exit(1);
 	});
 	let file_size = file.metadata().unwrap().len();
@@ -78,7 +84,7 @@ fn main() {
 	let mut sink = Md5Sink::new();
 	let iso_size = rvz::decompress_rvz(file_size, &reader, |off, data| sink.write(off, data))
 		.unwrap_or_else(|e| {
-			eprintln!("螻暮幕縺ｫ螟ｱ謨・ {}", e);
+			eprintln!("展開に失敗: {}", e);
 			std::process::exit(1);
 		});
 
@@ -95,4 +101,50 @@ fn main() {
 		print!("{:02x}", b);
 	}
 	println!();
+}
+
+fn cmd_encode(input: &str, output: &str, level: i32) {
+	let file = std::fs::File::open(input).unwrap_or_else(|e| {
+		eprintln!("開けません: {}: {}", input, e);
+		std::process::exit(1);
+	});
+	let iso_size = file.metadata().unwrap().len();
+	let reader = FileReader {
+		file: Mutex::new(file),
+	};
+	let out = std::fs::File::create(output).unwrap_or_else(|e| {
+		eprintln!("作成できません: {}: {}", output, e);
+		std::process::exit(1);
+	});
+	let mut writer = FileWriter { file: out };
+
+	let wia_size =
+		rvz::encode_iso_to_rvz(iso_size, level, &reader, &mut writer).unwrap_or_else(|e| {
+			eprintln!("圧縮に失敗: {}", e);
+			std::process::exit(1);
+		});
+	println!("iso_size={} rvz_size={}", iso_size, wia_size);
+}
+
+fn main() {
+	let args: Vec<String> = std::env::args().collect();
+	if args.len() < 3 {
+		eprintln!("使い方: rvz-cli decode <input.rvz> | encode <input.iso> <out.rvz> [level]");
+		std::process::exit(2);
+	}
+	match args[1].as_str() {
+		"decode" => cmd_decode(&args[2]),
+		"encode" => {
+			if args.len() < 4 {
+				eprintln!("使い方: rvz-cli encode <input.iso> <out.rvz> [level]");
+				std::process::exit(2);
+			}
+			let level = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(3);
+			cmd_encode(&args[2], &args[3], level);
+		}
+		other => {
+			eprintln!("不明なコマンド: {}", other);
+			std::process::exit(2);
+		}
+	}
 }

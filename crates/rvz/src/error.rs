@@ -1,7 +1,7 @@
 //! rvz クレートのエラー型。
 
 /// RVZ コンテナ処理のエラー。
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum RvzError {
 	/// packing 入力サイズが packedSize と一致しない
 	PackingSizeMismatch,
@@ -31,6 +31,8 @@ pub enum RvzError {
 	BadPartitionTable,
 	/// グループが見つからない
 	MissingGroup,
+	/// 入出力エラー
+	Io(std::io::Error),
 }
 
 impl std::fmt::Display for RvzError {
@@ -50,9 +52,16 @@ impl std::fmt::Display for RvzError {
 			RvzError::Zstd => "zstd 伸長に失敗しました",
 			RvzError::BadPartitionTable => "RVZ パーティション表の形式が不正です",
 			RvzError::MissingGroup => "RVZ グループが見つかりません",
+			RvzError::Io(e) => return write!(f, "入出力エラー: {}", e),
 		};
 		write!(f, "{}", msg)
 	}
 }
 
 impl std::error::Error for RvzError {}
+
+impl From<std::io::Error> for RvzError {
+	fn from(e: std::io::Error) -> Self {
+		RvzError::Io(e)
+	}
+}

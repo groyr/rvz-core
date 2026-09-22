@@ -13,10 +13,14 @@ GameCube 関連のディスク処理を PC / Pi / ブラウザで共有するた
 - `crates/rvz` … RVZ コンテナ（Wii ディスクイメージの Zstandard 圧縮コンテナ）
   - packing 層（LFG パディングの pack/unpack）: TS 実装の参照ベクトルと一致（テスト済み）
   - **デコーダ（RVZ→ISO）**: zstd（ruzstd）+ LFG unpack + ハッシュ再構築 + AES-128-CBC 再暗号化
-    - **実機検証**: MKWii の RVZ（2.65GB）を展開し、参照 ISO（4.48GB）と **MD5 完全一致**
-      （`1942f9c1…`）
-  - 予定: エンコーダ（ISO→RVZ）と wasm / CLI バインディング
-- `crates/rvz-cli` … 検証用 CLI（`rvz-cli decode <input.rvz>` で ISO の MD5 を表示）
+    - 検証: MKWii の RVZ（2.65GB）→ 参照 ISO（4.48GB）と **MD5 完全一致**（`1942f9c1…`）
+  - **エンコーダ（ISO→RVZ）**: パーティション検出・LFG packing・ハッシュ再計算・例外リスト・zstd
+    - 検証: MKWii の ISO を圧縮 → TS 実装の level3 出力と **サイズ・MD5 完全一致**
+      （`2821311242` B / `386ea195…`）。自作 RVZ の再展開も ISO MD5 一致
+  - `encode` feature（既定）は zstd 圧縮を使うためネイティブ前提（C ツールチェーンが必要）。wasm では無効化する
+- `crates/rvz-cli` … 検証用 CLI
+  - `rvz-cli decode <input.rvz>`（ISO 全体の MD5 を表示）
+  - `rvz-cli encode <input.iso> <out.rvz> [level]`
 
 ## 方針
 

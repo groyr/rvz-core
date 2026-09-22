@@ -5,8 +5,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["encode"]
+# ISO→RVZ エンコーダ（zstd 圧縮を使うためネイティブ前提。wasm では無効化する）
+encode = ["dep:zstd"]
+
 [dependencies]
 ruzstd = "0.7"
 aes = "0.8"
 cbc = "0.1"
 sha1 = "0.10"
+zstd = { version = "0.13", optional = true }
