@@ -154,3 +154,17 @@ pub unsafe extern "C" fn rvz_decoder_last_error(
 	core::ptr::copy_nonoverlapping(msg.as_ptr(), dst, n);
 	n
 }
+
+/// ディスクヘッダ（dhead, 最大 0x80 バイト）を `dst` へコピーし、長さを返す。
+///
+/// # Safety
+/// `dec`/`dst` は有効であること。
+#[no_mangle]
+pub unsafe extern "C" fn rvz_decoder_dhead(dec: *const PushDecoder, dst: *mut u8, cap: usize) -> usize {
+	let Some(dh) = (*dec).dhead() else {
+		return 0;
+	};
+	let n = dh.len().min(cap);
+	core::ptr::copy_nonoverlapping(dh.as_ptr(), dst, n);
+	n
+}

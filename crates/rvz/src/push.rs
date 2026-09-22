@@ -148,6 +148,10 @@ impl PushDecoder {
 	pub fn output_size(&self) -> u64 {
 		self.header.as_ref().map(|h| h.iso_size).unwrap_or(0)
 	}
+	/// ヘッダー内のディスクヘッダ（dhead, 0x80 バイト）。
+	pub fn dhead(&self) -> Option<&[u8]> {
+		self.header.as_ref().map(|h| h.dhead.as_slice())
+	}
 	pub fn has_output(&self) -> bool {
 		!self.outputs.is_empty()
 	}

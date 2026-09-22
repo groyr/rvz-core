@@ -59,3 +59,4 @@ cargo build --release --target wasm32-unknown-unknown
 ## ライセンス
 
 GPL-2.0-or-later（出典: friidump / CleanRip / Dolphin 系の GPL 実装に由来）
+全文は `LICENSE` を参照。
