@@ -1,6 +1,5 @@
 //! RVZ→ISO デコーダ。
 //!
-//! 移植元: rvz-converter web/src/decoder（TS 実装）。
 //! - ヘッダー／管理テーブルの解析
 //! - raw 領域の展開（zstd + LFG unpack）
 //! - パーティション領域の展開（zstd + unpack + ハッシュ再構築 + AES-CBC 再暗号化）

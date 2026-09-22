@@ -1,10 +1,6 @@
 //! rvz — RVZ コンテナ（Wii ディスクイメージの Zstandard 圧縮コンテナ）の Rust 実装。
 //!
-//! 移植元: rvz-converter web/src（ブラウザ TS 実装）と GC Ripper rvz/src（Node TS 実装）。
-//! 両者に重複していた実装をここへ一本化する（S2 構想）。
-//!
-//! 現状は packing 層（LFG パディングの pack/unpack）までを移植済み。
-//! コンテナ全体（encoder/decoder）は段階的に移植する。
+//! コンテナの packing / デコーダ（RVZ→ISO）/ エンコーダ（ISO→RVZ）を提供する。
 
 pub mod constants;
 pub mod crypto;

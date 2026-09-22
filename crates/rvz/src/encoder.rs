@@ -1,6 +1,5 @@
 //! RVZ エンコーダ（ISO→RVZ）。
 //!
-//! 移植元: rvz-converter web/src/encoder と GC Ripper rvz/src（TS 実装）。
 //! zstd 圧縮を使うため `encode` feature が必要（wasm では別途注入する想定）。
 
 use sha1::{Digest, Sha1};
@@ -432,9 +431,11 @@ pub struct CompressInfo {
 	pub partition_entries: Vec<CompressPartitionEntry>,
 }
 
-/// ISO を RVZ へ圧縮する。`on_chunk(offset, stored, packed, compressed)` でチャンクを通知する。
+/// ISO を RVZ へ圧縮する。
+/// `on_chunk(output_offset, stored, packed, compressed, iso_bytes_done)` でチャンクを通知する
+/// （`iso_bytes_done` はここまでに処理した ISO バイト数。進捗表示用）。
 #[allow(clippy::type_complexity)]
-pub fn compress_iso<R: ReadAt, F: FnMut(u64, &[u8], usize, bool) -> Result<(), RvzError>>(
+pub fn compress_iso<R: ReadAt, F: FnMut(u64, &[u8], usize, bool, u64) -> Result<(), RvzError>>(
 	iso_size: u64,
 	disc_type: u32,
 	chunk_size: u32,
@@ -451,6 +452,7 @@ pub fn compress_iso<R: ReadAt, F: FnMut(u64, &[u8], usize, bool) -> Result<(), R
 		}
 	}
 	let layout = build_data_entries(iso_size, chunk_size, &valid_partitions);
+	let mut bytes_done: u64 = 0;
 
 	for region in &layout.regions {
 		match region {
@@ -476,7 +478,8 @@ pub fn compress_iso<R: ReadAt, F: FnMut(u64, &[u8], usize, bool) -> Result<(), R
 					} else {
 						(main_data, false)
 					};
-					on_chunk(start, &stored, packed_size, is_compressed)?;
+					bytes_done += len;
+					on_chunk(start, &stored, packed_size, is_compressed, bytes_done)?;
 				}
 			}
 			Region::Part {
@@ -486,7 +489,15 @@ pub fn compress_iso<R: ReadAt, F: FnMut(u64, &[u8], usize, bool) -> Result<(), R
 				..
 			} => {
 				let part = &valid_partitions[*partition_idx];
-				compress_partition_region(part, *data_start, *blocks, level, read, &mut on_chunk)?;
+				compress_partition_region(
+					part,
+					*data_start,
+					*blocks,
+					level,
+					read,
+					&mut on_chunk,
+					&mut bytes_done,
+				)?;
 			}
 		}
 	}
@@ -502,7 +513,7 @@ pub fn compress_iso<R: ReadAt, F: FnMut(u64, &[u8], usize, bool) -> Result<(), R
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn compress_partition_region<
 	R: ReadAt,
-	F: FnMut(u64, &[u8], usize, bool) -> Result<(), RvzError>,
+	F: FnMut(u64, &[u8], usize, bool, u64) -> Result<(), RvzError>,
 >(
 	part: &ValidPartition,
 	data_start: u64,
@@ -510,6 +521,7 @@ fn compress_partition_region<
 	level: i32,
 	read: &R,
 	on_chunk: &mut F,
+	bytes_done: &mut u64,
 ) -> Result<(), RvzError> {
 	let blocks_per_chunk = 4u32;
 	let mut block_offset = 0u32;
@@ -586,10 +598,12 @@ fn compress_partition_region<
 				&stored,
 				packed_size,
 				is_compressed,
+				*bytes_done,
 			)?;
 			chunk_index_in_entry += 1;
 		}
 
+		*bytes_done += read_len as u64;
 		block_offset += blocks_in_window as u32;
 	}
 	Ok(())
@@ -697,11 +711,13 @@ fn build_tables(
 }
 
 /// ISO を読み、RVZ を `write` へ組み立てる。戻り値は出力 RVZ のサイズ。
-pub fn encode_iso_to_rvz<R: ReadAt, W: WriteAt>(
+/// `on_progress(iso_bytes_done, iso_size)` で進捗を通知する。
+pub fn encode_iso_to_rvz<R: ReadAt, W: WriteAt, P: FnMut(u64, u64)>(
 	iso_size: u64,
 	level: i32,
 	read: &R,
 	write: &mut W,
+	mut on_progress: P,
 ) -> Result<u64, RvzError> {
 	let mut header = vec![0u8; DISC_HEADER_SIZE];
 	let h = read
@@ -729,7 +745,7 @@ pub fn encode_iso_to_rvz<R: ReadAt, W: WriteAt>(
 		chunk_size,
 		level,
 		read,
-		|_offset, stored, packed, compressed| {
+		|_offset, stored, packed, compressed, iso_done| {
 			write.write_at(pos, stored).map_err(RvzError::Io)?;
 			let off4 = (pos / 4) as u32;
 			pos += stored.len() as u64;
@@ -741,6 +757,7 @@ pub fn encode_iso_to_rvz<R: ReadAt, W: WriteAt>(
 				pos += pad;
 			}
 			group_entries.push((off4, stored.len() as u32, packed as u32, compressed));
+			on_progress(iso_done, iso_size);
 			Ok(())
 		},
 	)?;

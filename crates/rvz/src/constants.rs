@@ -1,5 +1,4 @@
 // Wii ディスクフォーマット／RVZ コンテナの共有定数。
-// 移植元: rvz-converter web/src/core/constants.ts
 
 /// パーティションブロック（0x8000 = 32KiB）内のレイアウト
 pub const BLOCK_HEADER_SIZE: usize = 0x400;

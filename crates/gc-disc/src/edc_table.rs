@@ -1,4 +1,4 @@
-// 自動生成: gc-live-disc-server/src/descramble.py の EDC_TABLE を転記したもの
+// 自動生成: friidump / CleanRip source/disc_scramble.c 由来の EDC テーブルを転記したもの
 // (Nintendo GameCube の EDC 用 CRC テーブル)
 
 #[rustfmt::skip]

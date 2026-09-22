@@ -1,6 +1,4 @@
 //! RVZ packing 展開（LFG パディングレコードの展開）。
-//!
-//! 移植元: rvz-converter web/src/decoder/unpack.ts
 
 use crate::error::RvzError;
 use crate::lfg::Lfg;

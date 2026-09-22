@@ -1,5 +1,5 @@
 // rvz の pack/unpack と LFG のテスト。
-// LFG と packing は rvz-converter（TS 実装）が生成した参照ベクトルと一致することを確認する。
+// LFG と packing は参照実装（TS）が生成したベクトルと一致することを確認する。
 
 use rvz::constants::BLOCK_TOTAL_SIZE;
 use rvz::lfg::{seed_bytes, Lfg, LFG_SEED_BYTES};
@@ -16,7 +16,7 @@ fn seed_words() -> [u32; 17] {
 	std::array::from_fn(|i| 0x01020304u32.wrapping_add((i as u32).wrapping_mul(0x11111111)))
 }
 
-// rvz-converter web/src/core/lfg.ts が生成した参照ベクトル
+// 参照実装（TS）が生成した参照ベクトル
 const SEED_HEX: &str = "0403020115141312262524233736353448474645595857566a6968677b7a79788c8b8a899d9c9b9aaeadacabbfbebdbcd0cfcecde1e0dfdef2f1f0ef0303020114141312";
 const LFG_BYTES_HEX: &str = "c68df12f8a89d0dfce8ace7c67c7124b597573c78fc49392b16466b6e4103030ad67fd54a8121823a3cc127eaab5ae35083f39197292e216202b384b8282f1c3";
 

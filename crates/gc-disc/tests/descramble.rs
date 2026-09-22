@@ -1,6 +1,6 @@
 // gc-disc の単体テスト（ハードウェア不要）。
 // 既知の seed で正当なスクランブル済みブロックを作り、解除と EDC 検証を確認する。
-// 移植元 gc-live-disc-server/tests/test_descramble.py と同等の内容。
+// CleanRip のホストテストと同等の内容。
 
 use gc_disc::*;
 

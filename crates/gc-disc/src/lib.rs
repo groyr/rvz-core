@@ -1,8 +1,7 @@
 //! Nintendo GameCube ディスクのスクランブル解除（descramble）。
 //!
 //! 出典: friidump (Arep, GPLv2+) の unscrambler を基にした CleanRip
-//! `source/disc_scramble.c` → gc-live-disc-server `descramble.py` と同じアルゴリズムを
-//! Rust へ移植したもの（PC/Pi 側の重複実装をここへ一本化する）。
+//! `source/disc_scramble.c` と同一のアルゴリズムを Rust へ移植したもの。
 //!
 //! GameCube のスクランブル seed は disc ごとに異なるため、生フレーム先頭セクタの
 //! EDC を使って seed を探索し、16 セクタ周期でキャッシュする。

@@ -1,8 +1,6 @@
 //! LFG（Lagged Fibonacci Generator）。
 //! Wii パディング領域の擬似乱数生成（Dolphin と同一アルゴリズム）。
 //!
-//! 移植元: rvz-converter web/src/core/lfg.ts
-//!
 //! - 展開側 [`Lfg`]: RVZ packing のパディング展開用（シードのバイト列からストリーム生成）
 //! - 圧縮側 [`LaggedFibonacciGenerator`]: LFG 検出・シード導出用
 

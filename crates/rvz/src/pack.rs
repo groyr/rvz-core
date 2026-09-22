@@ -1,7 +1,5 @@
 //! RVZ packing（LFG パディング検出・junk レコード化）。
 //! Dolphin RVZPack 相当。チャンクを 0x8000 境界で走査し、パディング領域を junk レコード化する。
-//!
-//! 移植元: rvz-converter web/src/encoder/pack.ts
 
 use crate::constants::BLOCK_TOTAL_SIZE;
 use crate::lfg::{seed_bytes, u32be, LaggedFibonacciGenerator, LFG_SEED_BYTES};
