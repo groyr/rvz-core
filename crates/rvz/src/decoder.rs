@@ -31,6 +31,7 @@ pub struct Partition {
 	pub data: [PartitionDataEntry; 2],
 }
 
+#[derive(Clone, Copy)]
 pub struct RawEntry {
 	pub offset: u64,
 	pub size: u64,
@@ -38,6 +39,7 @@ pub struct RawEntry {
 	pub groups: u32,
 }
 
+#[derive(Clone, Copy)]
 pub struct GroupEntry {
 	pub offset4: u32,
 	pub size: u32,
@@ -75,7 +77,7 @@ fn be64(b: &[u8], o: usize) -> u64 {
 	])
 }
 
-fn zstd_decompress(input: &[u8]) -> Result<Vec<u8>, RvzError> {
+pub(crate) fn zstd_decompress(input: &[u8]) -> Result<Vec<u8>, RvzError> {
 	let mut dec = ruzstd::StreamingDecoder::new(input).map_err(|_| RvzError::Zstd)?;
 	let mut out = Vec::new();
 	dec.read_to_end(&mut out).map_err(|_| RvzError::Zstd)?;
@@ -89,6 +91,87 @@ pub fn read_output_size<R: ReadAt>(read: &R) -> Result<u64, RvzError> {
 		return Err(RvzError::NotRvz);
 	}
 	Ok(be64(&bytes, 0x24))
+}
+
+/// ヘッダー領域のバイト列を解析する（パーティション表は含めない）。
+pub fn parse_header_min(bytes: &[u8], file_size: u64) -> Result<RvzHeader, RvzError> {
+	if bytes.len() < HEADER_1_SIZE || &bytes[0..3] != b"RVZ" {
+		return Err(RvzError::NotRvz);
+	}
+	let header2_size = be32(bytes, 0x0c) as usize;
+	if header2_size < HEADER_2_SIZE || file_size < HEADER_1_SIZE as u64 + header2_size as u64 {
+		return Err(RvzError::BadHeader);
+	}
+	if be64(bytes, 0x2c) != file_size {
+		return Err(RvzError::FileSizeMismatch);
+	}
+	let h = &bytes[HEADER_1_SIZE..];
+	let mut dhead = vec![0u8; DISC_HEADER_SIZE];
+	let dhead_start = HEADER_1_SIZE + 0x10;
+	if dhead_start + DISC_HEADER_SIZE <= bytes.len() {
+		dhead.copy_from_slice(&bytes[dhead_start..dhead_start + DISC_HEADER_SIZE]);
+	}
+	Ok(RvzHeader {
+		iso_size: be64(bytes, 0x24),
+		compression: be32(h, 0x04),
+		chunk_size: be32(h, 0x0c),
+		raw_count: be32(h, 0xb4),
+		raw_offset: be64(h, 0xb8),
+		raw_size: be32(h, 0xc0),
+		group_count: be32(h, 0xc4),
+		group_offset: be64(h, 0xc8),
+		group_size: be32(h, 0xd0),
+		part_count: be32(h, 0x90),
+		parts: Vec::new(),
+		dhead,
+	})
+}
+
+/// ヘッダーからパーティション表の位置とエントリサイズを取り出す。
+pub fn part_table_info(header_bytes: &[u8]) -> (u64, u32) {
+	let h = &header_bytes[HEADER_1_SIZE..];
+	(be64(h, 0x98), be32(h, 0x94))
+}
+
+/// パーティション表のバイト列を解析する。
+pub fn parse_parts(
+	table: &[u8],
+	part_count: u32,
+	part_entry_size: u32,
+) -> Result<Vec<Partition>, RvzError> {
+	if part_entry_size < PART_ENTRY_SIZE as u32 {
+		return Err(RvzError::BadPartitionTable);
+	}
+	let mut parts = Vec::with_capacity(part_count as usize);
+	for p in 0..part_count as usize {
+		let e = &table[p * part_entry_size as usize..];
+		let mut key = [0u8; 16];
+		key.copy_from_slice(&e[0..16]);
+		let mut data = [PartitionDataEntry::default(); 2];
+		for (k, d) in data.iter_mut().enumerate() {
+			let off = 0x10 + k * PART_DATA_ENTRY_SIZE;
+			*d = PartitionDataEntry {
+				fs: be32(e, off),
+				ns: be32(e, off + 4),
+				gi: be32(e, off + 8),
+				ng: be32(e, off + 12),
+			};
+		}
+		parts.push(Partition { key, data });
+	}
+	Ok(parts)
+}
+
+/// 管理テーブルのバイト列を展開する（長さが期待値と違う場合のみ zstd 展開）。
+pub(crate) fn table_bytes(table: Vec<u8>, expected: usize) -> Result<Vec<u8>, RvzError> {
+	if table.len() != expected {
+		let out = zstd_decompress(&table)?;
+		if out.len() != expected {
+			return Err(RvzError::SizeMismatch);
+		}
+		return Ok(out);
+	}
+	Ok(table)
 }
 
 fn read_header<R: ReadAt>(file_size: u64, read: &R) -> Result<RvzHeader, RvzError> {
@@ -106,68 +189,18 @@ fn read_header<R: ReadAt>(file_size: u64, read: &R) -> Result<RvzHeader, RvzErro
 	let bytes = read
 		.read_at(0, HEADER_1_SIZE + header2_size as usize)
 		.map_err(|_| RvzError::BadHeader)?;
-	if be64(&bytes, 0x2c) != file_size {
-		return Err(RvzError::FileSizeMismatch);
-	}
-	let h = &bytes[HEADER_1_SIZE..];
-	let compression = be32(h, 0x04);
-	let chunk_size = be32(h, 0x0c);
-	let raw_count = be32(h, 0xb4);
-	let raw_offset = be64(h, 0xb8);
-	let raw_size = be32(h, 0xc0);
-	let group_count = be32(h, 0xc4);
-	let group_offset = be64(h, 0xc8);
-	let group_size = be32(h, 0xd0);
-
-	let mut dhead = vec![0u8; DISC_HEADER_SIZE];
-	let dhead_start = HEADER_1_SIZE + 0x10;
-	if dhead_start + DISC_HEADER_SIZE <= bytes.len() {
-		dhead.copy_from_slice(&bytes[dhead_start..dhead_start + DISC_HEADER_SIZE]);
-	}
-
-	let part_count = be32(h, 0x90);
-	let part_entry_size = be32(h, 0x94);
-	let part_offset = be64(h, 0x98);
-	let mut parts = Vec::new();
-	if part_count > 0 {
-		if part_entry_size < PART_ENTRY_SIZE as u32 {
-			return Err(RvzError::BadPartitionTable);
-		}
+	let mut header = parse_header_min(&bytes, file_size)?;
+	if header.part_count > 0 {
+		let (part_offset, part_entry_size) = part_table_info(&bytes);
 		let table = read
-			.read_at(part_offset, part_count as usize * part_entry_size as usize)
+			.read_at(
+				part_offset,
+				header.part_count as usize * part_entry_size as usize,
+			)
 			.map_err(|_| RvzError::BadPartitionTable)?;
-		for p in 0..part_count as usize {
-			let e = &table[p * part_entry_size as usize..];
-			let mut key = [0u8; 16];
-			key.copy_from_slice(&e[0..16]);
-			let mut data = [PartitionDataEntry::default(); 2];
-			for (k, d) in data.iter_mut().enumerate() {
-				let off = 0x10 + k * PART_DATA_ENTRY_SIZE;
-				*d = PartitionDataEntry {
-					fs: be32(e, off),
-					ns: be32(e, off + 4),
-					gi: be32(e, off + 8),
-					ng: be32(e, off + 12),
-				};
-			}
-			parts.push(Partition { key, data });
-		}
+		header.parts = parse_parts(&table, header.part_count, part_entry_size)?;
 	}
-
-	Ok(RvzHeader {
-		iso_size: be64(&bytes, 0x24),
-		compression,
-		chunk_size,
-		raw_count,
-		raw_offset,
-		raw_size,
-		group_count,
-		group_offset,
-		group_size,
-		part_count,
-		parts,
-		dhead,
-	})
+	Ok(header)
 }
 
 fn decompress_table<R: ReadAt>(
@@ -241,7 +274,7 @@ fn decompress_raw<R: ReadAt, W: FnMut(u64, &[u8])>(
 }
 
 #[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
-fn finalize_group(
+pub(crate) fn finalize_group(
 	key: &[u8; 16],
 	blocks: &[Option<Vec<u8>>],
 	ex: &[Vec<(usize, [u8; 20])>],

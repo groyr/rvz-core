@@ -20,7 +20,20 @@ GameCube 関連のディスク処理を PC / Pi / ブラウザで共有するた
   - `encode` feature（既定）は zstd 圧縮を使うためネイティブ前提（C ツールチェーンが必要）。wasm では無効化する
 - `crates/rvz-cli` … 検証用 CLI
   - `rvz-cli decode <input.rvz>`（ISO 全体の MD5 を表示）
+  - `rvz-cli decode-push <input.rvz>`（push 型デコーダ版）
   - `rvz-cli encode <input.iso> <out.rvz> [level]`
+- `crates/rvz-wasm` … WebAssembly バインディング（**push 型デコーダ**）
+  - 非同期 I/O と両立させるため、wasm から読みに行かず「次に読む位置」を要求し、
+    JS が読んだバイトを `rvz_decoder_feed` で渡す。出力は `rvz_decoder_take_output` で取り出す
+  - 検証: `tools/wasm-decode-check.mjs` で Node から駆動し、MKWii の RVZ を
+    参照 ISO と **MD5 完全一致**（`1942f9c1…`）
+
+### wasm ビルドと検証
+
+```sh
+cargo build --release -p rvz-wasm --target wasm32-unknown-unknown
+node tools/wasm-decode-check.mjs target/wasm32-unknown-unknown/release/rvz_wasm.wasm <input.rvz>
+```
 
 ## 方針
 

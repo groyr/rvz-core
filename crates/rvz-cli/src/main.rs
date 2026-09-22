@@ -103,6 +103,47 @@ fn cmd_decode(path: &str) {
 	println!();
 }
 
+fn cmd_decode_push(path: &str) {
+	use rvz::PushDecoder;
+	let file = std::fs::File::open(path).unwrap_or_else(|e| {
+		eprintln!("開けません: {}: {}", path, e);
+		std::process::exit(1);
+	});
+	let file_size = file.metadata().unwrap().len();
+	let reader = FileReader {
+		file: Mutex::new(file),
+	};
+
+	let mut dec = PushDecoder::new(file_size);
+	let mut sink = Md5Sink::new();
+	while let Some(req) = dec.request() {
+		let bytes = if req.len == 0 {
+			Vec::new()
+		} else {
+			reader.read_at(req.offset, req.len).unwrap()
+		};
+		if let Err(e) = dec.feed(&bytes) {
+			eprintln!("展開に失敗: {}", e);
+			std::process::exit(1);
+		}
+		while let Some((off, data)) = dec.take_output() {
+			sink.write(off, &data);
+		}
+	}
+	while let Some((off, data)) = dec.take_output() {
+		sink.write(off, &data);
+	}
+	let iso_size = dec.output_size();
+	let pos = sink.pos;
+	let contiguous = sink.contiguous;
+	let digest = sink.hasher.compute();
+	println!(
+		"iso_size={} bytes_written={} contiguous={}",
+		iso_size, pos, contiguous
+	);
+	println!("md5={:x}", digest);
+}
+
 fn cmd_encode(input: &str, output: &str, level: i32) {
 	let file = std::fs::File::open(input).unwrap_or_else(|e| {
 		eprintln!("開けません: {}: {}", input, e);
@@ -134,6 +175,7 @@ fn main() {
 	}
 	match args[1].as_str() {
 		"decode" => cmd_decode(&args[2]),
+		"decode-push" => cmd_decode_push(&args[2]),
 		"encode" => {
 			if args.len() < 4 {
 				eprintln!("使い方: rvz-cli encode <input.iso> <out.rvz> [level]");

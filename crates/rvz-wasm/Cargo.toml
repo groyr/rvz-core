@@ -1,0 +1,12 @@
+[package]
+name = "rvz-wasm"
+description = "rvz-core の WebAssembly バインディング（push 型デコーダ）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rvz = { path = "../rvz", default-features = false }
