@@ -126,12 +126,12 @@ fn cmd_decode_push(path: &str) {
 			eprintln!("展開に失敗: {}", e);
 			std::process::exit(1);
 		}
-		while let Some((off, data)) = dec.take_output() {
-			sink.write(off, &data);
+		while let Some(out) = dec.take_output() {
+			sink.write(out.offset, &out.data);
 		}
 	}
-	while let Some((off, data)) = dec.take_output() {
-		sink.write(off, &data);
+	while let Some(out) = dec.take_output() {
+		sink.write(out.offset, &out.data);
 	}
 	let iso_size = dec.output_size();
 	let pos = sink.pos;

@@ -41,6 +41,12 @@ pub extern "C" fn rvz_decoder_new(file_size: u64) -> *mut PushDecoder {
 	Box::into_raw(Box::new(PushDecoder::new(file_size)))
 }
 
+/// デコーダを生成する（`delegate_aes` が非 0 のとき AES 再暗号化を呼び出し側へ委譲）。
+#[no_mangle]
+pub extern "C" fn rvz_decoder_new_ex(file_size: u64, delegate_aes: c_int) -> *mut PushDecoder {
+	Box::into_raw(Box::new(PushDecoder::new_ex(file_size, delegate_aes != 0)))
+}
+
 /// デコーダを解放する。
 ///
 /// # Safety
@@ -127,16 +133,34 @@ pub unsafe extern "C" fn rvz_decoder_take_output(
 	cap: usize,
 	out_offset: *mut u64,
 ) -> i64 {
-	let Some((off, data)) = (*dec).take_output() else {
+	let Some(out) = (*dec).take_output() else {
 		return -1;
 	};
-	if data.len() > cap {
+	if out.data.len() > cap {
 		// 容量不足: 呼び出し側が大きいバッファで再試行できるよう、必要サイズを負値で返す
-		return -((data.len() as i64) + 1);
+		return -((out.data.len() as i64) + 1);
 	}
-	core::ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len());
-	*out_offset = off;
-	data.len() as i64
+	core::ptr::copy_nonoverlapping(out.data.as_ptr(), dst, out.data.len());
+	*out_offset = out.offset;
+	out.data.len() as i64
+}
+
+/// 直前に take_output した出力のパーティション鍵（AES 委譲モード時のみ 16 を返す）。
+///
+/// # Safety
+/// `dec`/`dst` は有効であること。
+#[no_mangle]
+pub unsafe extern "C" fn rvz_decoder_output_key(
+	dec: *const PushDecoder,
+	dst: *mut u8,
+	cap: usize,
+) -> usize {
+	let Some(key) = (*dec).last_output_key() else {
+		return 0;
+	};
+	let n = key.len().min(cap);
+	core::ptr::copy_nonoverlapping(key.as_ptr(), dst, n);
+	n
 }
 
 /// 直近のエラー文字列を `dst` へコピーし、長さを返す。

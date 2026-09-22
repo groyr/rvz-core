@@ -112,12 +112,29 @@ pub struct PushDecoder {
 	part: Option<PartState>,
 	stage: Stage,
 	request: Option<ReadRequest>,
-	outputs: VecDeque<(u64, Vec<u8>)>,
+	outputs: VecDeque<Output>,
 	error: Option<String>,
+	delegate_aes: bool,
+	last_key: Option<[u8; 16]>,
+}
+
+/// デコーダの出力チャンク。
+pub struct Output {
+	pub offset: u64,
+	pub data: Vec<u8>,
+	/// AES 委譲モード時のパーティション鍵（平文ブロックの暗号化に使う）。未委譲なら None。
+	pub key: Option<[u8; 16]>,
 }
 
 impl PushDecoder {
 	pub fn new(file_size: u64) -> Self {
+		Self::new_ex(file_size, false)
+	}
+
+	/// `delegate_aes` が true のとき、パーティションの AES 再暗号化を行わず
+	/// 平文ブロック（hashBlock‖dataBlock）を出力し、`Output::key` に領域キーを載せる。
+	/// 呼び出し側（ブラウザの JS 等）が `crypto.subtle` で暗号化する用途を想定する。
+	pub fn new_ex(file_size: u64, delegate_aes: bool) -> Self {
 		Self {
 			file_size,
 			header: None,
@@ -135,6 +152,8 @@ impl PushDecoder {
 			}),
 			outputs: VecDeque::new(),
 			error: None,
+			delegate_aes,
+			last_key: None,
 		}
 	}
 
@@ -155,8 +174,14 @@ impl PushDecoder {
 	pub fn has_output(&self) -> bool {
 		!self.outputs.is_empty()
 	}
-	pub fn take_output(&mut self) -> Option<(u64, Vec<u8>)> {
-		self.outputs.pop_front()
+	pub fn take_output(&mut self) -> Option<Output> {
+		let o = self.outputs.pop_front();
+		self.last_key = o.as_ref().and_then(|x| x.key);
+		o
+	}
+	/// 直前に `take_output` した出力のパーティション鍵（AES 委譲モード時のみ）。
+	pub fn last_output_key(&self) -> Option<[u8; 16]> {
+		self.last_key
 	}
 	pub fn error(&self) -> Option<&str> {
 		self.error.as_deref()
@@ -382,7 +407,7 @@ impl PushDecoder {
 			vec![0u8; expected]
 		};
 
-		self.outputs.push_back((logical_offset, chunk));
+		self.outputs.push_back(Output { offset: logical_offset, data: chunk, key: None });
 		self.raw_i += 1;
 		self.issue_region_request()
 	}
@@ -470,9 +495,11 @@ impl PushDecoder {
 					&mut ps.h1,
 					&mut ps.h2,
 					&ps.zero1k,
+					!self.delegate_aes,
 				)?;
 				let offset = disc_base + ps.group_start_block as u64 * BLOCK_TOTAL_SIZE as u64;
-				self.outputs.push_back((offset, output));
+				let key = if self.delegate_aes { Some(ps.key) } else { None };
+				self.outputs.push_back(Output { offset, data: output, key });
 			}
 			for b in ps.group_blocks.iter_mut() {
 				*b = None;

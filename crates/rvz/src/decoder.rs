@@ -283,6 +283,7 @@ pub(crate) fn finalize_group(
 	h1: &mut [u8],
 	h2: &mut [u8],
 	zero1k: &[u8],
+	encrypt: bool,
 ) -> Result<Vec<u8>, RvzError> {
 	for j in 0..BLOCKS_PER_GROUP {
 		let base = j * H0_ARRAY_SIZE;
@@ -326,11 +327,19 @@ pub(crate) fn finalize_group(
 		let hash_cipher = aes128_cbc_encrypt(key, &ZERO_IV, &hash_block);
 		let iv = &hash_cipher[0x3d0..0x3e0];
 		let data = blocks[j].as_ref().ok_or(RvzError::MissingGroup)?;
-		let data_cipher = aes128_cbc_encrypt(key, iv, data);
-		output[j * BLOCK_TOTAL_SIZE..j * BLOCK_TOTAL_SIZE + BLOCK_HEADER_SIZE]
-			.copy_from_slice(&hash_cipher);
-		output[j * BLOCK_TOTAL_SIZE + BLOCK_HEADER_SIZE..(j + 1) * BLOCK_TOTAL_SIZE]
-			.copy_from_slice(&data_cipher);
+		if encrypt {
+			let data_cipher = aes128_cbc_encrypt(key, iv, data);
+			output[j * BLOCK_TOTAL_SIZE..j * BLOCK_TOTAL_SIZE + BLOCK_HEADER_SIZE]
+				.copy_from_slice(&hash_cipher);
+			output[j * BLOCK_TOTAL_SIZE + BLOCK_HEADER_SIZE..(j + 1) * BLOCK_TOTAL_SIZE]
+				.copy_from_slice(&data_cipher);
+		} else {
+			// AES を呼び出し側（JS 等）に委譲する場合は平文ブロックを返す
+			output[j * BLOCK_TOTAL_SIZE..j * BLOCK_TOTAL_SIZE + BLOCK_HEADER_SIZE]
+				.copy_from_slice(&hash_block);
+			output[j * BLOCK_TOTAL_SIZE + BLOCK_HEADER_SIZE..(j + 1) * BLOCK_TOTAL_SIZE]
+				.copy_from_slice(data);
+		}
 	}
 	Ok(output)
 }
@@ -447,6 +456,7 @@ fn decompress_partition<R: ReadAt, W: FnMut(u64, &[u8])>(
 					&mut group_h1,
 					&mut group_h2,
 					&zero1k,
+					true,
 				)?;
 				let offset = disc_base + group_start_block as u64 * BLOCK_TOTAL_SIZE as u64;
 				write(offset, &output);

@@ -25,6 +25,8 @@ GameCube 関連のディスク処理を PC / Pi / ブラウザで共有するた
 - `crates/rvz-wasm` … WebAssembly バインディング（**push 型デコーダ**）
   - 非同期 I/O と両立させるため、wasm から読みに行かず「次に読む位置」を要求し、
     JS が読んだバイトを `rvz_decoder_feed` で渡す。出力は `rvz_decoder_take_output` で取り出す
+  - `rvz_decoder_new_ex(file_size, delegate_aes)` で **AES 再暗号化を呼び出し側へ委譲**できる
+    （平文ブロックと領域キーを返す。ブラウザでは `crypto.subtle`（HW）で暗号化するため大幅に高速化）
   - 検証: `tools/wasm-decode-check.mjs` で Node から駆動し、MKWii の RVZ を
     参照 ISO と **MD5 完全一致**（`1942f9c1…`）
 
