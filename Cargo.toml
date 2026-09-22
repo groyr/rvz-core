@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/gc-disc"]
+members = ["crates/gc-disc", "crates/rvz"]
 
 [workspace.package]
 version = "0.1.0"

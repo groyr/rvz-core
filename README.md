@@ -10,6 +10,10 @@ GameCube 関連のディスク処理を PC / Pi / ブラウザで共有するた
 - `crates/gc-disc` … Nintendo GameCube のスクランブル解除（descramble）と EDC 検証
   - 出典: friidump (Arep, GPLv2+) の unscrambler → CleanRip `source/disc_scramble.c`
     → gc-live-disc-server `descramble.py` と同一アルゴリズム
+- `crates/rvz` … RVZ コンテナ（Wii ディスクイメージの Zstandard 圧縮コンテナ）
+  - 現状: packing 層（LFG パディングの pack/unpack）を移植済み。LFG と pack は
+    rvz-converter（TS 実装）の参照ベクトルと一致することをテストで担保
+  - 予定: コンテナ全体（encoder / decoder）と zstd 連携を段階的に移植
 
 ## 方針
 
