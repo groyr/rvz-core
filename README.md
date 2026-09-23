@@ -8,7 +8,7 @@ WebAssembly とネイティブ CLI の両方にビルドでき、複数のアプ
 - `crates/gc-disc` … Nintendo GameCube のスクランブル解除（descramble）と EDC 検証
   - 出典: friidump (Arep, GPLv2+) の unscrambler を基にした CleanRip
     `source/disc_scramble.c` と同一アルゴリズム
-- `crates/rvz` … RVZ コンテナ（Wii ディスクイメージの Zstandard 圧縮コンテナ）
+- `crates/rvz` … RVZ コンテナ（GC/Wii ディスクイメージの Zstandard 圧縮コンテナ）
   - packing 層（LFG パディングの pack/unpack）
   - デコーダ（RVZ→ISO）: zstd（ruzstd）+ LFG unpack + ハッシュ再構築 + AES-128-CBC 再暗号化
     - 検証: Wii ディスクの RVZ を展開し、参照 ISO と **MD5 完全一致**
