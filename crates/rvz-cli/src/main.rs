@@ -144,16 +144,31 @@ fn cmd_decode_push(path: &str) {
 	println!("md5={:x}", digest);
 }
 
-fn md5_file(path: &str) -> String {
+/// 出力 RVZ の MD5 を計算する。`json` の場合は md5 フェーズの進捗を 1 行 JSON で出力する。
+fn md5_file(path: &str, json: bool) -> String {
 	let mut f = std::fs::File::open(path).expect("出力を開けません");
+	let total = f.metadata().map(|m| m.len()).unwrap_or(0);
 	let mut ctx = md5::Context::new();
 	let mut buf = vec![0u8; 8 * 1024 * 1024];
+	let mut done: u64 = 0;
+	let mut last_emit: u64 = 0;
+	let step = (total / 1000).max(1);
+	let t0 = std::time::Instant::now();
 	loop {
 		let n = f.read(&mut buf).expect("読み込みに失敗");
 		if n == 0 {
 			break;
 		}
 		ctx.consume(&buf[..n]);
+		done += n as u64;
+		if json && (done >= last_emit + step || done == total) {
+			last_emit = done;
+			println!(
+				"{{\"type\":\"progress\",\"phase\":\"md5\",\"value\":{:.4},\"elapsedMs\":{}}}",
+				done as f64 / total.max(1) as f64,
+				t0.elapsed().as_millis()
+			);
+		}
 	}
 	format!("{:x}", ctx.compute())
 }
@@ -212,14 +227,20 @@ fn do_encode<R: ReadAt>(reader: &R, iso_size: u64, output: &str, level: i32, jso
 	let mut writer = FileWriter { file: out };
 
 	let t0 = std::time::Instant::now();
-	let mut last_pct: i64 = -1;
+	// 0.1% 毎（最低 1 バイト）に encode フェーズ進捗を出力する。
+	let mut last_emit: u64 = 0;
+	let step = (iso_size / 1000).max(1);
 	let wia_size = rvz::encode_iso_to_rvz(iso_size, level, reader, &mut writer, |done, total| {
-		let pct = if total > 0 { (done.saturating_mul(100) / total) as i64 } else { 0 };
-		if pct != last_pct {
-			last_pct = pct;
-			if json {
-				println!("{{\"type\":\"progress\",\"value\":{:.4}}}", pct as f64 / 100.0);
-			}
+		if done < last_emit + step && done != total {
+			return;
+		}
+		last_emit = done;
+		if json {
+			println!(
+				"{{\"type\":\"progress\",\"phase\":\"encode\",\"value\":{:.4},\"elapsedMs\":{}}}",
+				done as f64 / total.max(1) as f64,
+				t0.elapsed().as_millis()
+			);
 		}
 	})
 	.unwrap_or_else(|e| {
@@ -229,12 +250,13 @@ fn do_encode<R: ReadAt>(reader: &R, iso_size: u64, output: &str, level: i32, jso
 		eprintln!("圧縮に失敗: {}", e);
 		std::process::exit(1);
 	});
+	let encode_ms = t0.elapsed().as_millis();
+	let md5hex = md5_file(output, json);
 	let elapsed_ms = t0.elapsed().as_millis();
-	let md5hex = md5_file(output);
 	if json {
 		println!(
-			"{{\"type\":\"done\",\"isoSize\":{},\"rvzSize\":{},\"md5\":\"{}\",\"elapsedMs\":{}}}",
-			iso_size, wia_size, md5hex, elapsed_ms
+			"{{\"type\":\"done\",\"isoSize\":{},\"rvzSize\":{},\"md5\":\"{}\",\"elapsedMs\":{},\"encodeMs\":{}}}",
+			iso_size, wia_size, md5hex, elapsed_ms, encode_ms
 		);
 	} else {
 		println!("iso_size={} rvz_size={} md5={}", iso_size, wia_size, md5hex);
@@ -260,9 +282,12 @@ fn cmd_encode(
 			}
 			std::thread::sleep(Duration::from_millis(200));
 		}
-		let iso_size = target
-			.unwrap_or_else(|| std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0));
-		let reader = FollowReader { path, target: iso_size };
+		let iso_size =
+			target.unwrap_or_else(|| std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0));
+		let reader = FollowReader {
+			path,
+			target: iso_size,
+		};
 		do_encode(&reader, iso_size, output, level, json);
 	} else {
 		let file = std::fs::File::open(input).unwrap_or_else(|e| {

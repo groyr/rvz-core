@@ -25,6 +25,10 @@ WebAssembly とネイティブ CLI の両方にビルドでき、複数のアプ
   - `rvz-cli decode-push <input.rvz>`（push 型デコーダ版）
   - `rvz-cli encode <input.iso> <out.rvz> [level] [--json] [--follow --iso-size <bytes>]`
     - `--json` で `progress` / `done` / `error` を 1 行 JSON で出力（進捗表示向け）
+    - `progress` は `phase`（`encode` / `md5`）と `elapsedMs` を含む。`value` は 0..1
+    - `--follow` は成長中の ISO を末尾追従する。Wii のパーティションヘッダは
+      **その位置に到達してから読む**ため、ディスク末端側のパーティションがあっても
+      圧縮が停止せず、吸い出しと並行して進む
 
 ## ビルド・テスト
 

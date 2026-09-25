@@ -192,149 +192,95 @@ pub fn set_up_partition<R: ReadAt>(
 	}))
 }
 
-enum Region {
-	Raw {
-		span_start: u64,
-		span_end: u64,
-		ng: u32,
-	},
-	Part {
-		partition_idx: usize,
-		data_start: u64,
-		blocks: u32,
-	},
-}
-
-struct DataLayout {
-	regions: Vec<Region>,
-	raw_entries: Vec<CompressRawEntry>,
-	partition_entries: Vec<CompressPartitionEntry>,
-	group_count: u32,
-}
-
-fn build_data_entries(
-	iso_size: u64,
+/// raw 領域（パーティション以外）を圧縮し、管理エントリを記録する。
+/// `offset`/`size` は ISO 上の生の範囲。先頭ディスクヘッダ分のスキップはここで処理する。
+#[allow(clippy::too_many_arguments)]
+fn compress_raw_region<R, F>(
+	read: &R,
 	chunk_size: u32,
-	valid_partitions: &[ValidPartition],
-) -> DataLayout {
-	let mut raw_entries = Vec::new();
-	let mut partition_entries = Vec::new();
-	let mut regions = Vec::new();
-	let mut group_index: u32 = 0;
-
-	let push_raw = |offset: u64,
-	                size: u64,
-	                raw_entries: &mut Vec<CompressRawEntry>,
-	                regions: &mut Vec<Region>,
-	                group_index: &mut u32| {
-		if size == 0 {
-			return;
-		}
-		let mut entry_offset = offset;
-		let mut entry_size = size;
-		let skip = if offset < DISC_HEADER_SIZE as u64 {
-			(DISC_HEADER_SIZE as u64 - offset).min(size)
-		} else {
-			0
-		};
-		entry_offset += skip;
-		entry_size -= skip;
-		if entry_size == 0 {
-			return;
-		}
-		let span_start = align_down(entry_offset, BLOCK_TOTAL_SIZE as u64);
-		let span_end = entry_offset + entry_size;
-		let ng = span_end
-			.saturating_sub(span_start)
-			.div_ceil(chunk_size as u64) as u32;
-		let gi = *group_index;
-		*group_index += ng;
-		raw_entries.push(CompressRawEntry {
-			offset: entry_offset,
-			size: entry_size,
-			gi,
-			ng,
-		});
-		regions.push(Region::Raw {
-			span_start,
-			span_end,
-			ng,
-		});
-	};
-
-	let create_pde = |offset: u64, size: u64, group_index: &mut u32| -> PartitionDataEntry {
-		let rounded = align_down(size, BLOCK_TOTAL_SIZE as u64);
-		let ng = if rounded == 0 {
-			0
-		} else {
-			rounded.div_ceil(chunk_size as u64) as u32
-		};
-		let gi = *group_index;
-		*group_index += ng;
-		PartitionDataEntry {
-			fs: (offset / BLOCK_TOTAL_SIZE as u64) as u32,
-			ns: (size / BLOCK_TOTAL_SIZE as u64) as u32,
-			gi,
-			ng,
-		}
-	};
-
-	let mut last_end: u64 = 0;
-	for (pi, p) in valid_partitions.iter().enumerate() {
-		if p.offset < last_end {
-			continue;
-		}
-		push_raw(
-			last_end,
-			p.offset - last_end,
-			&mut raw_entries,
-			&mut regions,
-			&mut group_index,
-		);
-		push_raw(
-			p.offset,
-			p.data_offset as u64,
-			&mut raw_entries,
-			&mut regions,
-			&mut group_index,
-		);
-
-		let data_start = p.data_start;
-		let data_end = data_start + p.data_size;
-		let split =
-			data_end.min(align_up(p.fst_offset + p.fst_size, GROUP_TOTAL_SIZE as u64) + data_start);
-		let e0 = create_pde(data_start, split - data_start, &mut group_index);
-		let e1 = create_pde(split, data_end - split, &mut group_index);
-		partition_entries.push(CompressPartitionEntry {
-			key: p.crypto_key,
-			data: [e0, e1],
-		});
-
-		for entry in [e0, e1] {
-			if entry.ns == 0 {
-				continue;
-			}
-			regions.push(Region::Part {
-				partition_idx: pi,
-				data_start: entry.fs as u64 * BLOCK_TOTAL_SIZE as u64,
-				blocks: entry.ns,
-			});
-		}
-		last_end = (e1.fs as u64 + e1.ns as u64) * BLOCK_TOTAL_SIZE as u64;
+	level: i32,
+	offset: u64,
+	size: u64,
+	raw_entries: &mut Vec<CompressRawEntry>,
+	group_index: &mut u32,
+	bytes_done: &mut u64,
+	on_chunk: &mut F,
+) -> Result<(), RvzError>
+where
+	R: ReadAt,
+	F: FnMut(u64, &[u8], usize, bool, u64) -> Result<(), RvzError>,
+{
+	if size == 0 {
+		return Ok(());
 	}
+	let mut entry_offset = offset;
+	let mut entry_size = size;
+	let skip = if offset < DISC_HEADER_SIZE as u64 {
+		(DISC_HEADER_SIZE as u64 - offset).min(size)
+	} else {
+		0
+	};
+	entry_offset += skip;
+	entry_size -= skip;
+	if entry_size == 0 {
+		return Ok(());
+	}
+	let span_start = align_down(entry_offset, BLOCK_TOTAL_SIZE as u64);
+	let span_end = entry_offset + entry_size;
+	let ng = span_end
+		.saturating_sub(span_start)
+		.div_ceil(chunk_size as u64) as u32;
+	let gi = *group_index;
+	*group_index += ng;
+	raw_entries.push(CompressRawEntry {
+		offset: entry_offset,
+		size: entry_size,
+		gi,
+		ng,
+	});
+	for i in 0..ng as u64 {
+		let start = span_start + i * chunk_size as u64;
+		let end = span_end.min(start + chunk_size as u64);
+		let len = end - start;
+		if len == 0 {
+			break;
+		}
+		let data = read
+			.read_at(start, len as usize)
+			.map_err(|_| RvzError::BadHeader)?;
+		let (main_data, packed_size) = rvz_pack_chunk(&data, start);
+		let compressed = zstd_compress(&main_data, level)?;
+		let (stored, is_compressed) = if compressed.len() < main_data.len() {
+			(compressed, true)
+		} else {
+			(main_data, false)
+		};
+		*bytes_done += len;
+		on_chunk(start, &stored, packed_size, is_compressed, *bytes_done)?;
+	}
+	Ok(())
+}
 
-	push_raw(
-		last_end,
-		iso_size - last_end,
-		&mut raw_entries,
-		&mut regions,
-		&mut group_index,
-	);
-	DataLayout {
-		regions,
-		raw_entries,
-		partition_entries,
-		group_count: group_index,
+/// パーティションデータエントリを作る（旧 `build_data_entries` の位置計算を踏襲）。
+fn create_pde(
+	offset: u64,
+	size: u64,
+	chunk_size: u32,
+	group_index: &mut u32,
+) -> PartitionDataEntry {
+	let rounded = align_down(size, BLOCK_TOTAL_SIZE as u64);
+	let ng = if rounded == 0 {
+		0
+	} else {
+		rounded.div_ceil(chunk_size as u64) as u32
+	};
+	let gi = *group_index;
+	*group_index += ng;
+	PartitionDataEntry {
+		fs: (offset / BLOCK_TOTAL_SIZE as u64) as u32,
+		ns: (size / BLOCK_TOTAL_SIZE as u64) as u32,
+		gi,
+		ng,
 	}
 }
 
@@ -434,6 +380,10 @@ pub struct CompressInfo {
 /// ISO を RVZ へ圧縮する。
 /// `on_chunk(output_offset, stored, packed, compressed, iso_bytes_done)` でチャンクを通知する
 /// （`iso_bytes_done` はここまでに処理した ISO バイト数。進捗表示用）。
+///
+/// パーティションヘッダは「その位置まで到達してから」読む（単一パス）。
+/// これにより吸い出し中の `--follow` でも、ディスク末端側のパーティション待ちで
+/// 圧縮全体が停止しない。
 #[allow(clippy::type_complexity)]
 pub fn compress_iso<R: ReadAt, F: FnMut(u64, &[u8], usize, bool, u64) -> Result<(), RvzError>>(
 	iso_size: u64,
@@ -443,70 +393,95 @@ pub fn compress_iso<R: ReadAt, F: FnMut(u64, &[u8], usize, bool, u64) -> Result<
 	read: &R,
 	mut on_chunk: F,
 ) -> Result<CompressInfo, RvzError> {
-	let mut valid_partitions: Vec<ValidPartition> = Vec::new();
+	let mut raw_entries: Vec<CompressRawEntry> = Vec::new();
+	let mut partition_entries: Vec<CompressPartitionEntry> = Vec::new();
+	let mut group_index: u32 = 0;
+	let mut bytes_done: u64 = 0;
+	let mut last_end: u64 = 0;
+
+	// Wii はパーティション表（0x40000 付近）のみ先頭で読む。個々のヘッダは後で読む。
 	if disc_type == 2 {
 		for c in detect_partitions(iso_size, read)? {
-			if let Some(v) = set_up_partition(&c, iso_size, read)? {
-				valid_partitions.push(v);
+			if c.offset < last_end {
+				continue;
 			}
-		}
-	}
-	let layout = build_data_entries(iso_size, chunk_size, &valid_partitions);
-	let mut bytes_done: u64 = 0;
+			// パーティション手前の raw を先に圧縮する（末端パーティション待ちを避ける）。
+			compress_raw_region(
+				read,
+				chunk_size,
+				level,
+				last_end,
+				c.offset - last_end,
+				&mut raw_entries,
+				&mut group_index,
+				&mut bytes_done,
+				&mut on_chunk,
+			)?;
+			last_end = c.offset;
 
-	for region in &layout.regions {
-		match region {
-			Region::Raw {
-				span_start,
-				span_end,
-				ng,
-			} => {
-				for i in 0..*ng as u64 {
-					let start = span_start + i * chunk_size as u64;
-					let end = (*span_end).min(start + chunk_size as u64);
-					let len = end - start;
-					if len == 0 {
-						break;
-					}
-					let data = read
-						.read_at(start, len as usize)
-						.map_err(|_| RvzError::BadHeader)?;
-					let (main_data, packed_size) = rvz_pack_chunk(&data, start);
-					let compressed = zstd_compress(&main_data, level)?;
-					let (stored, is_compressed) = if compressed.len() < main_data.len() {
-						(compressed, true)
-					} else {
-						(main_data, false)
-					};
-					bytes_done += len;
-					on_chunk(start, &stored, packed_size, is_compressed, bytes_done)?;
+			let Some(p) = set_up_partition(&c, iso_size, read)? else {
+				continue;
+			};
+			// パーティション先頭〜データ開始の raw（チケット／ヘッダ領域）
+			compress_raw_region(
+				read,
+				chunk_size,
+				level,
+				p.offset,
+				p.data_offset as u64,
+				&mut raw_entries,
+				&mut group_index,
+				&mut bytes_done,
+				&mut on_chunk,
+			)?;
+
+			// FST 手前までを e0、残りを e1 に分割する（旧実装と同じ）。
+			let data_start = p.data_start;
+			let data_end = p.data_start + p.data_size;
+			let split = data_end
+				.min(align_up(p.fst_offset + p.fst_size, GROUP_TOTAL_SIZE as u64) + data_start);
+			let e0 = create_pde(data_start, split - data_start, chunk_size, &mut group_index);
+			let e1 = create_pde(split, data_end - split, chunk_size, &mut group_index);
+			partition_entries.push(CompressPartitionEntry {
+				key: p.crypto_key,
+				data: [e0, e1],
+			});
+			for entry in [e0, e1] {
+				if entry.ns == 0 {
+					continue;
 				}
-			}
-			Region::Part {
-				partition_idx,
-				data_start,
-				blocks,
-				..
-			} => {
-				let part = &valid_partitions[*partition_idx];
 				compress_partition_region(
-					part,
-					*data_start,
-					*blocks,
+					&p,
+					entry.fs as u64 * BLOCK_TOTAL_SIZE as u64,
+					entry.ns,
 					level,
 					read,
 					&mut on_chunk,
 					&mut bytes_done,
 				)?;
 			}
+			last_end = (e1.fs as u64 + e1.ns as u64) * BLOCK_TOTAL_SIZE as u64;
 		}
 	}
 
+	// 最後の raw 領域
+	compress_raw_region(
+		read,
+		chunk_size,
+		level,
+		last_end,
+		iso_size.saturating_sub(last_end),
+		&mut raw_entries,
+		&mut group_index,
+		&mut bytes_done,
+		&mut on_chunk,
+	)?;
+
 	Ok(CompressInfo {
 		iso_size,
-		group_count: layout.group_count,
-		raw_entries: layout.raw_entries,
-		partition_entries: layout.partition_entries,
+		group_count: group_index,
+		raw_entries,
+		partition_entries,
 	})
 }
 

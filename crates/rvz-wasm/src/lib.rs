@@ -184,7 +184,11 @@ pub unsafe extern "C" fn rvz_decoder_last_error(
 /// # Safety
 /// `dec`/`dst` は有効であること。
 #[no_mangle]
-pub unsafe extern "C" fn rvz_decoder_dhead(dec: *const PushDecoder, dst: *mut u8, cap: usize) -> usize {
+pub unsafe extern "C" fn rvz_decoder_dhead(
+	dec: *const PushDecoder,
+	dst: *mut u8,
+	cap: usize,
+) -> usize {
 	let Some(dh) = (*dec).dhead() else {
 		return 0;
 	};

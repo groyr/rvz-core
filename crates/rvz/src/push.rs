@@ -407,7 +407,11 @@ impl PushDecoder {
 			vec![0u8; expected]
 		};
 
-		self.outputs.push_back(Output { offset: logical_offset, data: chunk, key: None });
+		self.outputs.push_back(Output {
+			offset: logical_offset,
+			data: chunk,
+			key: None,
+		});
 		self.raw_i += 1;
 		self.issue_region_request()
 	}
@@ -498,8 +502,16 @@ impl PushDecoder {
 					!self.delegate_aes,
 				)?;
 				let offset = disc_base + ps.group_start_block as u64 * BLOCK_TOTAL_SIZE as u64;
-				let key = if self.delegate_aes { Some(ps.key) } else { None };
-				self.outputs.push_back(Output { offset, data: output, key });
+				let key = if self.delegate_aes {
+					Some(ps.key)
+				} else {
+					None
+				};
+				self.outputs.push_back(Output {
+					offset,
+					data: output,
+					key,
+				});
 			}
 			for b in ps.group_blocks.iter_mut() {
 				*b = None;
